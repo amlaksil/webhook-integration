@@ -10,11 +10,12 @@ from sqlalchemy import event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = getenv("DATABASE_URL", "")
+DATABASE_URL = getenv("DATABASE_URL", "sqlite://")
 
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
+
 
 # pylint: disable=too-few-public-methods
 class Transaction(Base):
@@ -32,6 +33,7 @@ class Transaction(Base):
     account_name = Column(String)
     invoice_url = Column(String)
 
+
 @event.listens_for(Transaction, "before_insert")
 def convert_unix_timestamps(_mapper, _connection, target):
     """
@@ -42,11 +44,13 @@ def convert_unix_timestamps(_mapper, _connection, target):
     if isinstance(target.timestamp, int):
         target.timestamp = datetime.fromtimestamp(target.timestamp)
 
+
 def get_session():
     """
     Return a new session for database interaction
     """
     return Session()
+
 
 def init_db():
     """
