@@ -7,6 +7,7 @@ import hashlib
 import os
 import datetime
 from flask import Blueprint, request, jsonify
+from sqlalchemy.exc import SQLAlchemyError
 from models.db import get_session, Transaction
 from api import webhook_blueprint
 
@@ -29,24 +30,43 @@ def webhook():
     Handle incoming webhook requests by verifying the signature,
     checking for replay attacks, and storing the data if valid.
     """
-    request_data = request.get_json()
-    signature = request.headers.get('YAYA-SIGNATURE')
-    timestamp = request_data.get('timestamp')
+    error_response = None
+    try:
+        request_data = request.get_json()
+        if request_data is None:
+            error_response = jsonify({'error': 'Invalid JSON payload'}), 400
 
-    # Check for replay attacks
-    time_difference = datetime.datetime.utcnow() - \
-            datetime.datetime.fromtimestamp(timestamp)
-    if time_difference > datetime.timedelta(minutes=5):
-        return jsonify({'status': 'Replay attack detected'}), 400
+        signature = request.headers.get('YAYA-SIGNATURE')
+        if not signature:
+            error_response = jsonify({'error': 'Missing signature header'}), 400
 
-    secret_key = os.getenv('WEBHOOK_SECRET', '')
-    if not verify_signature(request_data, signature, secret_key):
-        return jsonify({'status': 'Invalid signature'}), 403
+        timestamp = request_data.get('timestamp')
+        if timestamp is None:
+            error_response = jsonify(
+                {'error': 'Missing timestamp in payload'}), 400
 
-    # Store the payload in the database
-    with get_session() as session:
-        transaction = Transaction(**request_data)
-        session.add(transaction)
-        session.commit()
+        # Check for replay attacks
+        time_difference = datetime.datetime.utcnow() - \
+                datetime.datetime.fromtimestamp(timestamp)
+        if time_difference > datetime.timedelta(minutes=5):
+            error_response = jsonify({'status': 'Replay attack detected'}), 400
 
-    return jsonify({'message': 'Transaction recorded successfully'}), 200
+        secret_key = os.getenv('WEBHOOK_SECRET', '')
+        if not verify_signature(request_data, signature, secret_key):
+            error_response = jsonify({'status': 'Invalid signature'}), 403
+
+        if error_response:
+            return jsonify(error_response[0]), error_response[1]
+
+        # Store the payload in the database
+        with get_session() as session:
+            transaction = Transaction(**request_data)
+            session.add(transaction)
+            session.commit()
+        return jsonify({'message': 'Transaction recorded successfully'}), 200
+    except (TypeError, ValueError) as e:
+        return jsonify({'error': f'Invalid data: {str(e)}'}), 400
+    except SQLAlchemyError as e:
+        return jsonify({'erro': 'Database error occurred', 'details': str(e)}), 500
+    except Exception as e: # pylint: disable=W0718
+        return jsonify({'error': 'An unexpected error occurred', 'details': str(e)}), 500
