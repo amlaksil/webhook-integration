@@ -123,7 +123,31 @@ class WebhookTestCase(unittest.TestCase):
 
     @patch('models.db.get_session')
     def test_database_error_handling(self, mock_get_session):
-        pass
+        """
+        Test endpoint handling of a database error by simulating a duplicate
+        entry with the same ID, expecting a 500 status code.
+        """
+        headers = {'YAYA-SIGNATURE': self.generate_signature(
+            self.payload, self.secret_key)}
+
+        response = self.app.post(
+            '/webhook',
+            data=json.dumps(self.payload),
+            content_type='application/json',
+            headers=headers
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        response = self.app.post(
+            '/webhook',
+            data=json.dumps(self.payload),
+            content_type='application/json',
+            headers=headers
+        )
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(
+                'Database error occurred', json.loads(response.data)['erro'])
 
 
 if __name__ == "__main__":
